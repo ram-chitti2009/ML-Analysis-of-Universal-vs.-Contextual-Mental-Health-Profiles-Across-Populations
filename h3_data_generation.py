@@ -102,6 +102,29 @@ cluster_centroids = kmeans.cluster_centers_
 test_distances = cdist(test_latent, cluster_centroids, metric='euclidean')
 test_cluster_assignments = np.argmin(test_distances, axis=1)
 
+print("Computing profile summary...")
+all_cluster_labels = np.concatenate([cluster_labels_all, test_cluster_assignments])
+all_data = np.vstack([train_val_data, test_data])
+
+profile_summary = []
+for k in range(checkpoint['best_k']):
+    cluster_mask = all_cluster_labels == k
+    cluster_data = all_data[cluster_mask]
+    cluster_size = np.sum(cluster_mask)
+    
+    profile_summary.append({
+        'Profile': f'P{k+1}',
+        'N': cluster_size,
+        'Depression': cluster_data[:, 0].mean(),
+        'Anxiety': cluster_data[:, 1].mean(),
+        'Stress': cluster_data[:, 2].mean(),
+        'Burnout': cluster_data[:, 3].mean()
+    })
+
+print("Profile summary computed:")
+for profile in profile_summary:
+    print(f"  {profile['Profile']}: N={profile['N']}, Dep={profile['Depression']:.3f}, Anx={profile['Anxiety']:.3f}, Stress={profile['Stress']:.3f}, Burnout={profile['Burnout']:.3f}")
+
 h3_data = {
     'cluster_labels_all': cluster_labels_all,
     'test_cluster_assignments': test_cluster_assignments,
@@ -110,6 +133,7 @@ h3_data = {
     'best_latent_dim': checkpoint['best_latent_dim'],
     'RANDOM_SEED': RANDOM_SEED,
     'dataset_name': 'D1-Swiss',
+    'profile_summary': profile_summary,
 }
 
 #h3 data saved as pickle
@@ -121,3 +145,6 @@ print(f" H3 data saved to: {h3_pickle_path}")
 print(f"  - Train+val clusters: {cluster_labels_all.shape}")
 print(f"  - Test clusters: {test_cluster_assignments.shape}")
 print(f"  - Centroids: {cluster_centroids.shape}")
+print(f"  - Profile summary: {len(profile_summary)} profiles")
+
+
