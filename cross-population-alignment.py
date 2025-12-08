@@ -18,6 +18,7 @@ import seaborn as sns
 import joblib
 import warnings
 from scipy.stats import chi2_contingency
+from sklearn.model_selection import train_test_split
 
 #loading the ds
 DATASETS = {
@@ -34,6 +35,14 @@ D4_Tech = pd.read_csv("D4_Tech_processed.csv")
 
 
 feature_columns = ["Depression", "Anxiety", "Stress", "Burnout"]
+TEST_SIZE = 0.2
+RANDOM_STATE = 42
+
+# use train split for consistency with trained artifacts
+D1_Swiss, _ = train_test_split(D1_Swiss, test_size=TEST_SIZE, random_state=RANDOM_STATE, shuffle=True)
+D2_Cultural, _ = train_test_split(D2_Cultural, test_size=TEST_SIZE, random_state=RANDOM_STATE, shuffle=True)
+D3_Academic, _ = train_test_split(D3_Academic, test_size=TEST_SIZE, random_state=RANDOM_STATE, shuffle=True)
+D4_Tech, _ = train_test_split(D4_Tech, test_size=TEST_SIZE, random_state=RANDOM_STATE, shuffle=True)
 
 X_Swiss = D1_Swiss[feature_columns]
 X_Cultural = D2_Cultural[feature_columns]
