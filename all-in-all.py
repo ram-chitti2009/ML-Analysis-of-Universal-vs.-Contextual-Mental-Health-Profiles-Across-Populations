@@ -78,7 +78,7 @@ for name, paths in DATASETS.items():
     )
     dataset_dfs[name] = train_df
     dataset_features[name] = train_df[feature_columns].values
-    print(f"✓ Loaded {name}: {len(train_df)} samples (train split from {len(full_df)})")
+    print(f"Loaded {name}: {len(train_df)} samples (train split from {len(full_df)})")
 
 print(f"\nTotal datasets: {len(DATASETS)}")
 
@@ -134,19 +134,19 @@ for name, paths in DATASETS.items():
         'activation': checkpoint['best_activation_name'],
         'k': checkpoint['best_k']
     }
-    print(f"  ✓ Autoencoder: {INPUT_DIM}→{checkpoint['best_hidden_size']}→{checkpoint['best_latent_dim']}, K={checkpoint['best_k']}")
+    print(f"  Autoencoder: {INPUT_DIM}→{checkpoint['best_hidden_size']}→{checkpoint['best_latent_dim']}, K={checkpoint['best_k']}")
     
     # Load scaler
     scaler = joblib.load(paths["scaler"])
     scalers[name] = scaler
-    print(f"  ✓ Scaler loaded")
+    print(f"  Scaler loaded")
     
     # Load KMeans
     kmeans = joblib.load(paths["kmeans"])
     kmeans_models[name] = kmeans
-    print(f"  ✓ K-means loaded: {kmeans.n_clusters} clusters")
+    print(f"  K-means loaded: {kmeans.n_clusters} clusters")
 
-print("\n✓ All models, scalers, and K-means loaded successfully")
+print("\nAll models, scalers, and K-means loaded successfully")
 
 # Statistical test functions
 def cluster_entropy(labels, K):
@@ -188,7 +188,11 @@ def test_cluster_similarity(pop_labels, ref_labels, k, pop_name, ref_name):
 def compute_feature_deviation(X_target, labels_target, ref_profiles, feature_columns):
     """Compute feature deviation from reference profiles"""
     deviations = {}
-    X_target_values = X_target if isinstance(X_target, np.ndarray) else X_target.values
+    # Convert to DataFrame for proper column access (FIX: use column names instead of hardcoded indices)
+    if isinstance(X_target, np.ndarray):
+        X_target_df = pd.DataFrame(X_target, columns=feature_columns)
+    else:
+        X_target_df = X_target
     
     for k in ref_profiles.keys():
         mask = labels_target == k
@@ -200,11 +204,11 @@ def compute_feature_deviation(X_target, labels_target, ref_profiles, feature_col
         if mask.sum() == 0:
             deviations[k] = {feature: np.nan for feature in feature_columns}
         else:
-            X_cluster = X_target_values[mask]
+            X_cluster = X_target_df.loc[mask]
             deviations[k] = {}
-            for i, feat in enumerate(feature_columns):
+            for feat in feature_columns:
                 ref_value = ref_profiles[k][feat]
-                cluster_value = X_cluster[:, i].mean()
+                cluster_value = X_cluster[feat].mean()
                 deviation = np.abs(cluster_value - ref_value) ** 2
                 deviations[k][feat] = deviation
     return deviations
@@ -217,6 +221,7 @@ print("Projecting every dataset into every other dataset's latent space")
 print("="*80)
 
 all_results = []
+profile_comparisons = []
 
 dataset_names = list(DATASETS.keys())
 
@@ -266,11 +271,13 @@ for ref_name in dataset_names:
             }
             continue
 
+        # Convert to DataFrame for safe column access IMP - ( use column names instead of hardcoded indices as sometimes the indices are not consistent)
+        ref_df = pd.DataFrame(ref_data, columns=feature_columns)
         ref_profiles[cluster_id] = {
-            "Depression": ref_data[mask, 0].mean(),
-            "Anxiety": ref_data[mask, 1].mean(),
-            "Stress": ref_data[mask, 2].mean(),
-            "Burnout": ref_data[mask, 3].mean(),
+            "Depression": ref_df.loc[mask, "Depression"].mean(),
+            "Anxiety": ref_df.loc[mask, "Anxiety"].mean(),
+            "Stress": ref_df.loc[mask, "Stress"].mean(),
+            "Burnout": ref_df.loc[mask, "Burnout"].mean(),
             "N": int(count),
             'pct_of_total': float(count / len(ref_labels) * 100),
             'empty': False
@@ -312,6 +319,41 @@ for ref_name in dataset_names:
         
         print(f"    Cluster distribution: {dict(Counter(target_labels))}")
         print(f"    Entropy: {target_entropy:.3f} (ref: {ref_entropy:.3f}, diff: {abs(target_entropy - ref_entropy):.4f})")
+        
+        # Compute target profile means for comparison
+        target_profiles = {}
+        for cluster_id in range(ref_k):
+            mask = target_labels == cluster_id
+            count = mask.sum()
+            if count > 0:
+                # Convert to DataFrame for safe column access (FIX: use column names instead of hardcoded indices)
+                target_df = pd.DataFrame(target_data, columns=feature_columns)
+                target_profiles[cluster_id] = {
+                    "Depression": target_df.loc[mask, "Depression"].mean(),
+                    "Anxiety": target_df.loc[mask, "Anxiety"].mean(),
+                    "Stress": target_df.loc[mask, "Stress"].mean(),
+                    "Burnout": target_df.loc[mask, "Burnout"].mean(),
+                    "N": int(count)
+                }
+        
+        # Store profile comparison data
+        for cluster_id in range(ref_k):
+            if not ref_profiles[cluster_id].get('empty'):
+                profile_comparisons.append({
+                    'Reference': ref_name,
+                    'Target': target_name,
+                    'Profile': f'P{cluster_id+1}',
+                    'Ref_Depression': ref_profiles[cluster_id]['Depression'],
+                    'Ref_Anxiety': ref_profiles[cluster_id]['Anxiety'],
+                    'Ref_Stress': ref_profiles[cluster_id]['Stress'],
+                    'Ref_Burnout': ref_profiles[cluster_id]['Burnout'],
+                    'Ref_N': ref_profiles[cluster_id]['N'],
+                    'Target_Depression': target_profiles.get(cluster_id, {}).get('Depression', np.nan),
+                    'Target_Anxiety': target_profiles.get(cluster_id, {}).get('Anxiety', np.nan),
+                    'Target_Stress': target_profiles.get(cluster_id, {}).get('Stress', np.nan),
+                    'Target_Burnout': target_profiles.get(cluster_id, {}).get('Burnout', np.nan),
+                    'Target_N': target_profiles.get(cluster_id, {}).get('N', 0),
+                })
         
         # Statistical test
         chi2_result = test_cluster_similarity(target_labels, ref_labels, ref_k, target_name, ref_name)
@@ -368,7 +410,14 @@ print(interp_pivot.to_string())
 
 # Save results
 results_df.to_csv("cross_population_results.csv", index=False)
-print(f"\n✓ Results saved to cross_population_results.csv")
+print(f"\nResults saved to cross_population_results.csv")
+
+# Save profile comparison table
+if profile_comparisons:
+    profile_comparison_df = pd.DataFrame(profile_comparisons)
+    profile_comparison_df.to_csv("profile_comparison_table.csv", index=False)
+    print(f"Profile comparison table saved to profile_comparison_table.csv")
+    print(profile_comparison_df)
 
 print("\n" + "="*80)
 print("ANALYSIS COMPLETE")

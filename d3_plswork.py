@@ -882,15 +882,17 @@ def run_autoencoder_pipeline(dataset_name: str, force_latent_dim: int = None, fo
     #It is important to compute global threshold values for each profile based on the entire dataset not just the cluster data
     #This ensures consistency and comparability across different datasets
 
+    # Convert to DataFrame for safe column access (FIX: use column names instead of hardcoded indices)
+    train_val_df = pd.DataFrame(train_val_data, columns=FEATURE_COLUMNS)
 
-    global_depression_threshold_high = np.percentile(train_val_data[:, 0], 75)
-    global_depression_threshold_low = np.percentile(train_val_data[:, 0], 25)
-    global_anxiety_threshold_high = np.percentile(train_val_data[:, 1], 75)
-    global_anxiety_threshold_low = np.percentile(train_val_data[:, 1], 25)
-    global_stress_threshold_high = np.percentile(train_val_data[:, 2], 75)
-    global_stress_threshold_low = np.percentile(train_val_data[:, 2], 25)
-    global_burnout_threshold_high = np.percentile(train_val_data[:, 3], 75)
-    global_burnout_threshold_low = np.percentile(train_val_data[:, 3], 25)
+    global_depression_threshold_high = np.percentile(train_val_df['Depression'], 75)
+    global_depression_threshold_low = np.percentile(train_val_df['Depression'], 25)
+    global_anxiety_threshold_high = np.percentile(train_val_df['Anxiety'], 75)
+    global_anxiety_threshold_low = np.percentile(train_val_df['Anxiety'], 25)
+    global_stress_threshold_high = np.percentile(train_val_df['Stress'], 75)
+    global_stress_threshold_low = np.percentile(train_val_df['Stress'], 25)
+    global_burnout_threshold_high = np.percentile(train_val_df['Burnout'], 75)
+    global_burnout_threshold_low = np.percentile(train_val_df['Burnout'], 25)
 
     def interpret_profile(depression, anxiety, stress, burnout):
         """

@@ -112,13 +112,16 @@ for k in range(checkpoint['best_k']):
     cluster_data = all_data[cluster_mask]
     cluster_size = np.sum(cluster_mask)
     
+    # Convert to DataFrame for safe column access (FIX: use column names instead of hardcoded indices)
+    cluster_df = pd.DataFrame(cluster_data, columns=FEATURE_COLUMNS)
+    
     profile_summary.append({
         'Profile': f'P{k+1}',
         'N': cluster_size,
-        'Depression': cluster_data[:, 0].mean(),
-        'Anxiety': cluster_data[:, 1].mean(),
-        'Stress': cluster_data[:, 2].mean(),
-        'Burnout': cluster_data[:, 3].mean()
+        'Depression': cluster_df['Depression'].mean(),
+        'Anxiety': cluster_df['Anxiety'].mean(),
+        'Stress': cluster_df['Stress'].mean(),
+        'Burnout': cluster_df['Burnout'].mean()
     })
 
 print("Profile summary computed:")

@@ -12,29 +12,30 @@ import torch
 import torch.nn as nn
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
+from sklearn.model_selection import train_test_split
 
 
 DATA_CONFIG = {
     "D1-Swiss": {
-        "model_path": "D1_Swiss_model.pth",
+        "model_path": "D1_Swiss_model (3).pth",
         "data_path": "D1_Swiss_processed.csv",
         "k": 2,
         "features": ["Depression", "Anxiety", "Stress", "Burnout"],
     },
     "D2-Cultural": {
-        "model_path": "D2_Cultural_model (1).pth",  # adjust if filename differs
+        "model_path": "D2_Cultural_model (2).pth",  # adjust if filename differs
         "data_path": "D2_Cultural_processed.csv",
         "k": 6,
         "features": ["Depression", "Anxiety", "Stress", "Burnout"],
     },
     "D3-Academic": {
-        "model_path": "D3_Academic_model (1).pth",  # note the space in filename
+        "model_path": "D3_Academic_model (2).pth",  # note the space in filename
         "data_path": "D3_Academic_processed.csv",
         "k": 2,
         "features": ["Depression", "Anxiety", "Stress", "Burnout"],
     },
     "D4-Tech": {
-        "model_path": "D4_Tech_model.pth",
+        "model_path": "D4_Tech_model (2).pth",
         "data_path": "D4_Tech_processed.csv",
         "k": 3,
         "features": ["Depression", "Anxiety", "Stress", "Burnout"],
@@ -81,15 +82,26 @@ def run_one(name, cfg, save_dir="/content"):
     ae.load_state_dict(ckpt["model_state_dict"])
     ae.eval()
 
-    # Load data and scale (fit scaler here; if you saved one, load instead)
+    # Load data and use train split (80%) to match all-in-all.py
     df = pd.read_csv(data_path)
-    X = df[FEATURES].values
+    X_full = df[FEATURES].values
+    
+    # Use same split as all-in-all.py: TEST_SIZE=0.2, RANDOM_STATE=42
+    X_train, _ = train_test_split(
+        X_full,
+        test_size=0.2,
+        random_state=ckpt.get("RANDOM_SEED", 42),
+        shuffle=True
+    )
+    
+    # Fit scaler on train split only
     scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    X_scaled = scaler.fit_transform(X_train)
 
     with torch.no_grad():
         z = ae.encoder(torch.tensor(X_scaled, dtype=torch.float32)).numpy()
 
+    # Fit K-means on train split only
     km = KMeans(n_clusters=k, random_state=ckpt.get("RANDOM_SEED", 42), n_init=20)
     km.fit(z)
 
