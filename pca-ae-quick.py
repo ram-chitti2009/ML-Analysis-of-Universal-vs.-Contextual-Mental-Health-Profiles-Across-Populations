@@ -15,40 +15,51 @@ from sklearn.metrics import (
     calinski_harabasz_score,
     davies_bouldin_score,
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
 import joblib
 
 # Configuration
 RANDOM_SEED = 42
 FEATURE_COLUMNS = ["Depression", "Anxiety", "Stress", "Burnout"]
 INPUT_DIM = 4
-TEST_SIZE = 0.2  # match training split
 
 # Artifact map (adjust filenames if yours differ)
 ARTIFACTS = {
     "D1-Swiss": {
-        "csv": "D1_Swiss_processed.csv",
-        "model": "D1_Swiss_model (3).pth",
+        "csv": "D1_Swiss_processed_test.csv",
+        "model": "D1_Swiss_model (4).pth",
         "scaler": "D1-Swiss_scaler.joblib",
         "kmeans": "D1-Swiss_kmeans_model.joblib",
+        "pca_scaler": "pca_kmeans_artifacts/D1-Swiss_pca_scaler.joblib",
+        "pca": "pca_kmeans_artifacts/D1-Swiss_pca_model.joblib",
+        "pca_kmeans": "pca_kmeans_artifacts/D1-Swiss_pca_kmeans.joblib",
     },
     "D2-Cultural": {
-        "csv": "D2_Cultural_processed.csv",
-        "model": "D2_Cultural_model (2).pth",
+        "csv": "D2_Cultural_processed_test.csv",
+        "model": "D2_Cultural_model (3).pth",
         "scaler": "D2-Cultural_scaler.joblib",
         "kmeans": "D2-Cultural_kmeans_model.joblib",
+        "pca_scaler": "pca_kmeans_artifacts/D2-Cultural_pca_scaler.joblib",
+        "pca": "pca_kmeans_artifacts/D2-Cultural_pca_model.joblib",
+        "pca_kmeans": "pca_kmeans_artifacts/D2-Cultural_pca_kmeans.joblib",
     },
     "D3-Academic": {
-        "csv": "D3_Academic_processed.csv",
-        "model": "D3_Academic_model (2).pth",
+        "csv": "D3_Academic_processed_test.csv",
+        "model": "D3_Academic_model (3).pth",
         "scaler": "D3-Academic_scaler.joblib",
         "kmeans": "D3-Academic_kmeans_model.joblib",
+        "pca_scaler": "pca_kmeans_artifacts/D3-Academic_pca_scaler.joblib",
+        "pca": "pca_kmeans_artifacts/D3-Academic_pca_model.joblib",
+        "pca_kmeans": "pca_kmeans_artifacts/D3-Academic_pca_kmeans.joblib",
     },
     "D4-Tech": {
-        "csv": "D4_Tech_processed.csv",
-        "model": "D4_Tech_model (2).pth",
+        "csv": "D4_Tech_processed_test.csv",
+        "model": "D4_Tech_model (3).pth",
         "scaler": "D4-Tech_scaler.joblib",
         "kmeans": "D4-Tech_kmeans_model.joblib",
+        "pca_scaler": "pca_kmeans_artifacts/D4-Tech_pca_scaler.joblib",
+        "pca": "pca_kmeans_artifacts/D4-Tech_pca_model.joblib",
+        "pca_kmeans": "pca_kmeans_artifacts/D4-Tech_pca_kmeans.joblib",
     },
 }
 
@@ -85,13 +96,8 @@ def run_one(name, cfg):
 
     try:
         df = pd.read_csv(cfg["csv"])
-        train_df, _ = train_test_split(
-            df,
-            test_size=TEST_SIZE,
-            random_state=RANDOM_SEED,
-            shuffle=True,
-        )
-        train_data = train_df[FEATURE_COLUMNS].values
+        test_df = df  # Use the entire dataset as test_df since I loaded only test tenosr
+        test_data = test_df[FEATURE_COLUMNS].values
     except Exception as e:
         print(f"  !! Failed to load data: {e}")
         return
@@ -117,8 +123,11 @@ def run_one(name, cfg):
     try:
         scaler = joblib.load(cfg["scaler"])
         kmeans = joblib.load(cfg["kmeans"])
+        pca_scaler = joblib.load(cfg["pca_scaler"])
+        pca_model = joblib.load(cfg["pca"])
+        pca_kmeans = joblib.load(cfg["pca_kmeans"])
     except Exception as e:
-        print(f"  !! Failed to load scaler/KMeans: {e}")
+        print(f"  !! Failed to load artifacts: {e}")
         return
 
     best_k = ckpt["best_k"]
@@ -127,12 +136,12 @@ def run_one(name, cfg):
     print(
         f"  Model: {INPUT_DIM}→{ckpt['best_hidden_size']}→{best_latent_dim}, K={best_k}"
     )
-    print(f"  Train split: {len(train_data)} samples")
+    print(f"  Test split: {len(test_data)} samples")
 
     # AE latent + metrics
-    train_scaled = scaler.transform(train_data)
+    test_scaled = scaler.transform(test_data)
     with torch.no_grad():
-        z = model.encoder(torch.tensor(train_scaled, dtype=torch.float32)).numpy()
+        z = model.encoder(torch.tensor(test_scaled, dtype=torch.float32)).numpy()
     z_mean, z_std = z.mean(0), z.std(0)
     z_norm = (z - z_mean) / (z_std + 1e-8)
     ae_labels = kmeans.predict(z_norm)
@@ -140,43 +149,33 @@ def run_one(name, cfg):
     ae_ch = calinski_harabasz_score(z_norm, ae_labels)
     ae_db = davies_bouldin_score(z_norm, ae_labels)
 
-    # PCA sweep 1-4 dims
-    pca_results = []
-    for pca_dim in range(1, 5):
-        pca = PCA(n_components=pca_dim, random_state=RANDOM_SEED)
-        p_lat = pca.fit_transform(train_scaled)
-        explained_var = pca.explained_variance_ratio_.sum()
-
-        p_km = KMeans(n_clusters=best_k, random_state=RANDOM_SEED, n_init=20)
-        p_labels = p_km.fit_predict(p_lat)
-
-        p_sil = silhouette_score(p_lat, p_labels)
-        p_ch = calinski_harabasz_score(p_lat, p_labels)
-        p_db = davies_bouldin_score(p_lat, p_labels)
-
-        pca_results.append(
-            {
-                "dim": pca_dim,
-                "explained_var": explained_var,
-                "silhouette": p_sil,
-                "calinski_harabasz": p_ch,
-                "davies_bouldin": p_db,
-            }
-        )
-        print(
-            f"    PCA dim={pca_dim}: Sil={p_sil:.4f}, CH={p_ch:.1f}, DB={p_db:.4f}, Var={explained_var:.4f}"
-        )
-
-    pca_df = pd.DataFrame(pca_results)
-    best_idx = pca_df["silhouette"].idxmax()
-    best = pca_df.iloc[best_idx]
+    # Use existing PCA model instead of tuning
+    pca_scaled_test = pca_scaler.transform(test_data)
+    p_lat = pca_model.transform(pca_scaled_test)
+    pca_labels = pca_kmeans.predict(p_lat)
+    
+    pca_sil = silhouette_score(p_lat, pca_labels)
+    pca_ch = calinski_harabasz_score(p_lat, pca_labels)
+    pca_db = davies_bouldin_score(p_lat, pca_labels)
+    explained_var = pca_model.explained_variance_ratio_.sum()
+    pca_dim = pca_model.n_components_
+    
+    print(f"    PCA dim={pca_dim}: Sil={pca_sil:.4f}, CH={pca_ch:.1f}, DB={pca_db:.4f}, Var={explained_var:.4f}")
+    
+    best = {
+        "dim": pca_dim,
+        "silhouette": pca_sil,
+        "calinski_harabasz": pca_ch,
+        "davies_bouldin": pca_db,
+        "explained_var": explained_var
+    }
 
     # Improvements (DB: lower is better)
     sil_improve = ((ae_sil - best["silhouette"]) / best["silhouette"]) * 100
     ch_improve = ((ae_ch - best["calinski_harabasz"]) / best["calinski_harabasz"]) * 100
     db_improve = ((best["davies_bouldin"] - ae_db) / best["davies_bouldin"]) * 100
 
-    print("\n  Best PCA:")
+    print("\n  PCA:")
     print(
         f"    dim={int(best['dim'])}, Sil={best['silhouette']:.4f}, "
         f"CH={best['calinski_harabasz']:.1f}, DB={best['davies_bouldin']:.4f}"
@@ -184,7 +183,7 @@ def run_one(name, cfg):
     print("\n  Autoencoder:")
     print(f"    dim={best_latent_dim}, Sil={ae_sil:.4f}, CH={ae_ch:.1f}, DB={ae_db:.4f}")
 
-    print("\n  Improvements (AE vs best PCA):")
+    print("\n  Improvements (AE vs PCA):")
     print(f"    Silhouette: {sil_improve:+.2f}%")
     print(f"    Calinski-Harabasz: {ch_improve:+.2f}%")
     print(f"    Davies-Bouldin: {db_improve:+.2f}% (positive = AE better)")
